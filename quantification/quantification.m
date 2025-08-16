@@ -1,4 +1,4 @@
-basePath = 'D:\TMA_analysis\TMA_hc_stacksandmasks\ ';
+basePath = 'D:\TMA_analysis\TMA_stacksandmasks\ ';
 maskPath = '\'; %Input folder name
 maskFileName = '_mask.tif';
 omePath = '\';
