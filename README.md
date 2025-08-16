@@ -27,6 +27,35 @@ jupyter notebook
 ```
 Please note that the Conda environment qc_for_lost_mac was created and exported from a Mac computer. While the environment should work on other platforms, there may be some compatibility issues due to differences in operating systems and package dependencies. You can find a Windows version under the name qc_for_lost_windows.
 
+## Analysis of BCL6 signal
+
+Due to incomplete bleaching of the cytoplasmic CD27 signal from the previous staining cycle, nuclear BCL6 staining was partially obscured. The BCL6 expression was quantified specifically within nuclear masks that were uniformly shrunken by 2 pixels. 
+
+First, set up scimap.xyz by following the tutorial at https://scimap.xyz/Getting%20Started/ 
+
+Then, activate the scimap environment, and open the reduce_mask_xosxos.py file and specify your input and output directories. Then run
+```
+python reduce_mask_xosxos.py
+```
+
+Within these masks, perform quantification again. Download the quantification script from https://github.com/farkkilab/image_processing/tree/main/pipeline/3_quantification and the quantification yml file from https://github.com/farkkilab/image_processing/tree/main/envs.
+
+Create a conda environment
+```
+conda env create --name quantification --file=path/to/ymlfile/environments.yml
+```
+Then, activate the environment
+```
+conda activate quantification
+```
+Edit the input and output folders in the script. The image stacks should be in one folder, and masks in one folder, and the files should have the same names. You also need a csv file with channel names. Then,
+```
+python quantification_workflow.py -o ../../TMA_reduced_quantified -ch ../../channel_names.csv -c 4
+```
+For additional help, see https://github.com/farkkilab/image_processing from Färkkilä Lab. Note, you can also perform the initial quantification by following their steps.
+
+To check for BCL6 status, again activate the scimap conda environment, navigate to the BCL6_script.ipynb, edit the paths, run, and inspect the results.
+
 ## Single-cell (spatial) analysis
 
 Merging and editing of the data frames for cell phenotyping, followed by cell abundance exploration, statistics, and part of neighborhood analysis, were performed using R studio. Cell type calling, including data normalization and spatial analysis, was performed using Scimap (scimap.xyz). For further information, see the "analysis" folder, which contains the UPDATE_FILE_NAME.Rmd and Jupyter notebook files. Cell counts were normalised to tissue area, which was calculated with QuPath (v. 0.4.3) using the "Create thresholder" tool from the first DAPI image of the image stacks. This resulted data frame area_images.csv, see "analysis" folder.
