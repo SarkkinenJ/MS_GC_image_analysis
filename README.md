@@ -8,7 +8,7 @@ Segmentation of nuclei was done using StarDist´s (https://github.com/stardist/s
 
 ## Quantification 
 
-The mean fluorescence intensity (MFI) for each cell mask was computed using the Bioformats library in MatLab (MATLAB version: 9.13.0 (R2022b)), see “quantification” folder. First, the folder (S3segmenter) was added to the path in Matlab, after which the quantification script (Quantification.m) was used. Download also bioformats_package.jar from https://www.openmicroscopy.org/bio-formats/downloads/.
+The mean fluorescence intensity (MFI) for each cell mask was computed using the Bioformats library in MatLab (MATLAB version: 9.13.0 (R2022b)), see “quantification” folder. First, the folder (S3segmenter) was added to the path in Matlab, after which the quantification script (Quantification.m) was used. Download also bioformats_package.jar from https://www.openmicroscopy.org/bio-formats/downloads/ and add it to the S3segmenter folder.
 
 ## Quality control
 
