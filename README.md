@@ -1,7 +1,7 @@
 # Image analysis of lymph nodes from patients with multiple sclerosis and healthy controls
 
 The following summarizes the analysis steps used in image analysis by Sarkkinen et al (DOI will be updated after publication of the manuscript).
-The images to recapitulate the results can be found in the UPDATE.
+The images to recapitulate the results can be found from the manuscript.
 
 ## Segmentation
 
