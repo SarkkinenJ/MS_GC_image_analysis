@@ -60,7 +60,7 @@ Use the BCL6_status_merge.R script to read in the data and concatenate it into a
 
 ## Single-cell (spatial) analysis
 
-Merging and editing of the data frames for cell phenotyping, followed by cell abundance exploration, statistics, and part of neighborhood analysis, were performed using R studio. Cell type calling, including data normalization and spatial analysis, was performed using Scimap (scimap.xyz). For further information, see the "analysis" folder, which contains the MS_TMA_analysis_in_R.Rmd and Jupyter notebook files. Cell counts were normalised to tissue area, which was calculated with QuPath (v. 0.4.3) using the "Create thresholder" tool from the first DAPI image of the image stacks. This resulted data frame area_images.csv, see "analysis" folder.
+Merging and editing of the data frames for cell phenotyping, followed by cell abundance exploration, statistics, and part of neighborhood analysis, were performed using R studio. Cell type calling, including data normalization and spatial analysis, was performed using Scimap (scimap.xyz). For further information, see the "analysis" folder, which contains the MS_TMA_analysis_in_R.Rmd and Jupyter notebook files to recapitulate results performed in Scimap (scimap.ipynb, MS_neighbourhood_analysis.ipynb. Cell counts were normalised to tissue area, which was calculated with QuPath (v. 0.4.3) using the "Create thresholder" tool from the first DAPI image of the image stacks. This resulted data frame area_images.csv, see "analysis" folder.
 
 ## EBER-ISH analysis
 
