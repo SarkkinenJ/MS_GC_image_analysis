@@ -29,7 +29,7 @@ Please note that the Conda environment qc_for_lost_mac was created and exported 
 
 ## Single-cell (spatial) analysis
 
-Merging and editing of the data frames for cell phenotyping, followed by cell abundance exploration, statistics, and part of neighborhood analysis, were performed using R studio. Cell type calling, including data normalization and spatial analysis, was performed using Scimap (scimap.xyz). For further information, see the "analysis" folder, which contains the UPDATE_FILE_NAME.Rmd and Jupyter notebook files. Cell counts were normalised to tissue area, which was calculated with QuPath (v. 0.4.3) using the "Create thresholder" tool from the first DAPI image of the image stacks. This resulted data frame images.area.csv, see "analysis" folder.
+Merging and editing of the data frames for cell phenotyping, followed by cell abundance exploration, statistics, and part of neighborhood analysis, were performed using R studio. Cell type calling, including data normalization and spatial analysis, was performed using Scimap (scimap.xyz). For further information, see the "analysis" folder, which contains the UPDATE_FILE_NAME.Rmd and Jupyter notebook files. Cell counts were normalised to tissue area, which was calculated with QuPath (v. 0.4.3) using the "Create thresholder" tool from the first DAPI image of the image stacks. This resulted data frame area_images.csv, see "analysis" folder.
 
 ## EBER-ISH analysis
 
