@@ -1,0 +1,2079 @@
+---
+title: "MS_TMA_revision1"
+author: "Joona Sarkkinen"
+date: "2024-12-18"
+output: html_document
+---
+
+### Libraries ###
+```{r}
+library(dplyr)
+library(stringr)
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(ggpubr)
+library(kableExtra)
+library(data.table)
+library(rstatix)
+library(coin)
+```
+
+
+### Preprocessing ### 
+
+This step was done before cell phenotyping in scimap.xyz.
+
+Tables from same samples were first merged together and "lost" column recoded.
+
+First for MS samples.
+Then for MS dataset
+```{r}
+setwd('/Volumes/TMA_analysis/')
+fnames <- list.files(path = "ms_kept/", full.names = TRUE)
+basenameIDs <- sapply(fnames, function(x) unlist(strsplit(basename(x),"_"))[1])
+
+for(id in unique(basenameIDs)){
+  
+  assign(paste0("fnames",id),
+         list.files(path = "ms_kept/", pattern = id, full.names = TRUE))
+  
+  
+  data.list <- lapply(get(paste0("fnames",id)), read.csv)
+  
+  fnames_data=NULL
+  for(j in 1:length(data.list)){
+    fnames_data <- rbind(fnames_data,data.list[[j]])
+    fnames_data <- fnames_data[!(fnames_data$lost=="True"),]
+  }
+  
+  assign(paste0("fnames_data",id),fnames_data)
+  write.csv(get(paste0("fnames_data",id)),file=paste0("ms_data/s",id,".csv"), row.names = FALSE)
+}
+```
+And merge to a single df.
+
+```{r}
+setwd('/Volumes/TMA_analysis/')
+temp = list.files(path = "ms_data/",pattern="*.csv", full.names = TRUE)
+myfiles = lapply(temp, read.csv)
+df_ms <- do.call("rbind", myfiles)
+head(df_ms)
+str(df_ms)
+df_ms <- df_ms %>% select(!c("X", "lost"))
+
+head(df_ms)
+df_ms$ID <- substr(df_ms$SampleId, 1,3)
+df_ms$dataset <- "MS"
+df_ms$tma <- substr(df_ms$ID, 1,1)
+head(df_ms)
+
+
+df_ms <- df_ms %>% dplyr::rename(ImageID = SampleId, CellID = CellId, X_centroid = X_position, Y_centroid = Y_position, 
+                                 DNA1 = DAP1, DNA2 = DAPI2, DNA3 = DAPI3, DNA4 = DAPI4, DNA5 = DAPI5, DNA6 = DAPI6)
+df_ms$CellID <- paste(df_ms$ImageID, df_ms$CellID, sep="_")
+df_ms <- df_ms %>% relocate(ID, .before = dataset) %>% 
+  relocate(ImageID, .before = dataset) %>% 
+  relocate(X_centroid, .before = Area) %>% relocate(Y_centroid, .before = Area)
+
+unique(df_ms$ID)
+colnames(df_ms)
+colnames(df_mg)
+str(df_mg)
+str(df_ms)
+
+write.csv(df_ms, "/Volumes/ms_dataset_unlabeled.csv", row.names = FALSE)
+```
+
+
+
+And finally for healthy controls
+```{r}
+setwd('/Volumes/TMA_analysis/')
+fnames <- list.files(path = "hc_kept/", full.names = TRUE)
+basenameIDs <- sapply(fnames, function(x) unlist(strsplit(basename(x),"_"))[1])
+
+for(id in unique(basenameIDs)){
+  
+  assign(paste0("fnames",id),
+         list.files(path = "hc_kept/", pattern = id, full.names = TRUE))
+  
+  
+  data.list <- lapply(get(paste0("fnames",id)), read.csv)
+  
+  fnames_data=NULL
+  for(j in 1:length(data.list)){
+    fnames_data <- rbind(fnames_data,data.list[[j]])
+    fnames_data <- fnames_data[!(fnames_data$lost=="True"),]
+  }
+  
+  assign(paste0("fnames_data",id),fnames_data)
+  write.csv(get(paste0("fnames_data",id)),file=paste0("hc_data/s",id,".csv"), row.names = FALSE)
+}
+```
+And merge to a single df.
+```{r}
+setwd('/Volumes/TMA_analysis/')
+temp = list.files(path = "hc_data/",pattern="*.csv", full.names = TRUE)
+myfiles = lapply(temp, read.csv)
+df_hc <- do.call("rbind", myfiles)
+head(df_hc)
+str(df_hc)
+df_hc <- df_hc %>% select(!c("X", "lost"))
+
+head(df_hc)
+df_hc$ID <- substr(df_hc$SampleId, 1,3)
+df_hc$dataset <- "HC"
+df_hc$tma <- substr(df_hc$ID, 1,1)
+head(df_hc)
+
+
+df_hc <- df_hc %>% dplyr::rename(ImageID = SampleId, CellID = CellId, X_centroid = X_position, Y_centroid = Y_position, 
+                                 DNA1 = DAP1, DNA2 = DAPI2, DNA3 = DAPI3, DNA4 = DAPI4, DNA5 = DAPI5, DNA6 = DAPI6)
+df_hc$CellID <- paste(df_hc$ImageID, df_hc$CellID, sep="_")
+df_hc <- df_hc %>% relocate(ID, .before = dataset) %>% 
+  relocate(ImageID, .before = dataset) %>% 
+  relocate(X_centroid, .before = Area) %>% relocate(Y_centroid, .before = Area)
+
+unique(df_hc$ID)
+colnames(df_hc)
+colnames(df_mg)
+str(df_hc)
+str(df_ms)
+
+write.csv(df_hc, "/Volumes/hc_dataset_unlabeled.csv", row.names = FALSE)
+```
+
+
+### Analysis in Scimap ###
+Data were scaled and cells were phenotyped in scimap.xyz. BCL6 status was analysed separately. For both, see README.md in Github.
+
+
+### Modification of the dataframes for Figures ###
+
+MS dataset
+```{r}
+#read and edit anndata which contains marker_phenotype, different morphological measurements, and MFI on every channel.
+ad <- read_h5ad("/location/ms_markerphenotyped.h5ad")
+df_x <- as.data.frame(ad$X)
+df_x <- df_x %>% rownames_to_column('id')
+df_o <- as.data.frame(ad$obs)
+df_o <- df_o %>% rownames_to_column('id')
+df_ms <- merge(df_x, df_o, by="id")
+df_ms <- df_ms %>% select(!c(id, imageid)) %>% relocate(ID, .before = HEV)
+fwrite(df_ms, "/location/ms_phenotyped.csv", row.names = FALSE)
+df_ms_s <- df_ms %>% select(ID, ImageID, dataset, tma, CellID, phenotype)
+fwrite(df_ms_s, "/location/ms_phenotyped_annotations.csv", row.names = FALSE)
+
+
+#count frequencies of main cell populations and remove samples with lot of unknown cells
+
+ms_all <- df_ms_s
+
+#remove artefact
+ms_all2 <- ms_all %>% filter(!phenotype %in% c("artefact1", "artefact2", "artefact3", "DP.T"))
+clin <- read.csv("S1_sample_information.csv") #found from supplemental_tables
+ms_clin <- clin %>% filter(type %in% "MS")
+
+ms_all3 <- merge(ms_all2, ms_clin, by = "ImageID")
+
+#fractions of main cell types
+ms_all3 <- ms_all3 %>% mutate(main = recode(phenotype,
+                                "Th.ICOS.PD1" = "Th", "Th.PD1" = "Th", "Th.ICOS" = "Th",
+                                "Tc.ICOS.PD1" = "Tc", "Tc.ICOS" = "Tc", "Tc.PD1" = "Tc",
+                                "B.CD20" = "B", "FoB.CD20.CD21" = "B", "MB.CD20.CD27" = "B", 
+                                "Treg.ICOS" = "Treg", "Treg.ICOS.PD1" = "Treg", "Treg.PD1" = "Treg"))
+
+#fractions of cells
+ms2 <- ms_all3 %>% group_by(ID, ImageID, tma, dataset) %>% dplyr::count()
+ms22 <- ms_all3 %>% group_by(ID, ImageID, main) %>% dplyr::count()
+ms2 <- merge(ms2, ms22, by = c("ID", "ImageID"))
+head(ms2)
+ms2 <- ms2 %>% dplyr::rename(n.cells.crop = n.x, n_celltype = n.y)
+ms2$fr_celltype <- ms2$n_celltype / ms2$n.cells.crop
+
+write.csv(ms_all3, "/location/ms_phenotyped_kept.csv", row.names = FALSE)
+
+```
+
+
+HC dataset
+```{r}
+#read and edit anndata which contains marker_phenotype, different morphological measurements, and MFI on every channel.
+ad <- read_h5ad("/location/hc_markerphenotyped.h5ad")
+df_x <- as.data.frame(ad$X)
+df_x <- df_x %>% rownames_to_column('id')
+df_o <- as.data.frame(ad$obs)
+df_o <- df_o %>% rownames_to_column('id')
+df_hc <- merge(df_x, df_o, by="id")
+df_hc <- df_hc %>% select(!c(id, imageid)) %>% relocate(ID, .before = HEV)
+fwrite(df_hc, "/location/hc_phenotyped.csv", row.names = FALSE)
+df_hc_s <- df_hc %>% select(ID, ImageID, dataset, tma, CellID, phenotype)
+fwrite(df_hc_s, "/location/hc_phenotyped_annotations.csv", row.names = FALSE)
+
+hc_all <-  df_hc_s
+hc_all2 <- hc_all %>% filter(!phenotype %in% c("artefact1", "artefact2", "artefact3", "DP.T"))
+hc_clin <- clin %>% filter(type %in% "CTRL")
+hc_all3 <- merge(hc_all2, hc_clin, by = "ImageID")
+
+#fractions of main cell types
+hc_all3 <- hc_all3 %>% mutate(main = recode(phenotype,
+                                "Th.ICOS.PD1" = "Th", "Th.PD1" = "Th", "Th.ICOS" = "Th",
+                                "Tc.ICOS.PD1" = "Tc", "Tc.ICOS" = "Tc", "Tc.PD1" = "Tc",
+                                "B.CD20" = "B", "FoB.CD20.CD21" = "B", "MB.CD20.CD27" = "B", "PC.CD19.CD27" = "B",
+                                "Treg.ICOS" = "Treg", "Treg.ICOS.PD1" = "Treg", "Treg.PD1" = "Treg"))
+
+#fractions of cells
+hc2 <- hc_all3 %>% group_by(ID, ImageID, tma, dataset) %>% dplyr::count()
+hc22 <- hc_all3 %>% group_by(ID, ImageID, main) %>% dplyr::count()
+hc2 <- merge(hc2, hc22, by = c("ID", "ImageID"))
+hc2 <- hc2 %>% dplyr::rename(n.cells.crop = n.x, n_celltype = n.y)
+hc2$fr_celltype <- hc2$n_celltype / hc2$n.cells.crop
+
+write.csv(hc_all3, "/location/hc_phenotyped_kept.csv", row.names = FALSE)
+```
+
+
+
+### Figure 1 ###
+
+Plot original Figure 1D where axillary is compared to other locations
+```{r}
+ms_big <- df_ms
+hc_big <- df_hc
+big <- rbind(ms_big, hc_big)
+colnames(big)
+big <- big[,c(1:15, 25, 28)]
+big_l <- big %>% 
+  pivot_longer(!c(ID, ImageID, CellID), names_to = "marker", values_to = "MFI") %>%
+  group_by(ID, ImageID, marker) %>% 
+  summarise(MFI = median(MFI))
+
+samage <- read.csv("/location/sample_age.csv")
+
+clin_sub <- clin %>% select(ID)
+sam_age <- merge(samage, clin_sub, by = "ID")
+mfi_age <- merge(big_l, sam_age, by = c("ID"))
+
+#figure S1 E
+colnames(big)
+mfi_age %>% 
+  filter(!marker %in% c("KI67", "CXCR5")) %>%
+  ggplot(aes(x=sample_age, y=MFI)) + 
+  facet_wrap(~ marker, nrow = 5, scales = "free")  +
+  xlab("Age of FFPE sample at the time of mfIHC") +
+  ylab("Normalized MFI of each marker per sample") +
+  geom_point() +
+  geom_smooth(method=lm) +
+  stat_cor(method = "pearson") # or spearman
+
+#data values
+supval_S1E <- mfi_age %>%
+  filter(!marker %in% c("KI67", "CXCR5")) %>%
+  select(ID, sample_age, marker, MFI)
+
+
+df_main <- rbind(ms2, hc2)
+df_area <- read.csv("/location/images_area.csv")
+df_main <- merge(df_main, df_area, by = "ImageID")
+df_main$cells_mm2 <- df_main$n_celltype / df_main$area.mm2
+
+df_main <- df_main %>% 
+  mutate(location2 = recode(location,
+                            "axillary" = "axillary",
+                            .default = "other"),
+         main = factor(main, levels = c('Th', 'Tc', 'Treg', 'DP.T', 'B', 'FDC', 'epithelium', 'HEV', 'Unknown')))
+#figure S1 F
+df_main %>% 
+  filter(!main == "Unknown") %>%
+  ggplot(aes(x=main, y=cells_mm2, fill=dataset)) +
+  ylab("cells / 1 mm2") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+#data values
+supval_S1F <- df_main %>%
+  filter(main != "Unknown") %>%
+  select(ImageID, dataset, main, cells_mm2)
+
+
+
+#figure S1 G i
+df_main %>% filter(!main %in% "Unknown") %>%
+ggplot(aes(x=LN_type, y=cells_mm2, fill=dataset)) +
+  ylab("cells / 1 mm2") + xlab("Malignancy status") + 
+  facet_wrap(~ main, nrow = 2, scales = "free")  +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+supval_S1Gi <- df_main %>%
+  filter(main != "Unknown") %>%
+  select(ImageID, dataset, main, LN_type, cells_mm2)
+
+
+
+#figure S1 G ii
+df_main$age <- factor(df_main$age, levels = c('under50', '50+'))
+df_main %>% filter(!main %in% "Unknown") %>% 
+ggplot(aes(x=age, y=cells_mm2, fill=dataset)) +
+  ylab("cells / 1 mm2") + xlab("Age at sample collection under 50y or over 50y") + 
+  facet_wrap(~ main, nrow = 2, scales = "free")  +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+supval_S1Gii <- df_main %>%
+  filter(main != "Unknown") %>%
+  select(ImageID, dataset, main, age, cells_mm2)
+
+
+
+#figure S1 G iii
+df_main %>% filter(location %in% "axillary", !main %in% "Unknown") %>%
+ggplot(aes(x=main, y=cells_mm2, fill=dataset)) +
+  ylab("cells / 1 mm2") + xlab("Axillary LNs") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+supval_S1Giii <- df_main %>%
+  filter(location %in% "axillary", !main %in% "Unknown") %>%
+  select(ImageID, dataset, main, cells_mm2)
+
+
+
+#figure S1 G iv
+comp_mstype <-  list(c("CTRL", "RRMS"), c("CTRL", "SPMS"), c("RRMS", "SPMS"))
+df_main %>% filter(!MS_type %in% "PPMS", !main %in% "Unknown") %>%
+ggplot(aes(x=MS_type, y=cells_mm2, fill=MS_type)) +
+  ylab("cells / 1 mm2") + xlab("MS type (PPMS excluded)") + 
+  facet_wrap(~ main, nrow = 2, scales = "free")  +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Pastel1")[1:5])+
+  stat_compare_means(comparisons = comp_mstype, label = "p.signif", vjust = 1) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+supval_S1Giv <- df_main %>%
+  filter(!MS_type %in% "PPMS", !main %in% "Unknown") %>%
+  select(ImageID, dataset, main, MS_type, cells_mm2)
+
+
+
+#figure S1 G v
+df_main %>% filter(!main %in% "Unknown") %>% 
+  mutate(immunosupression = replace_na(immunosupression, "CTRL")) %>%
+ggplot(aes(x=immunosupression, y=cells_mm2, fill=dataset)) +
+  ylab("cells / 1 mm2") + xlab("Immunosuppression") + 
+  facet_wrap(~ main, nrow = 2, scales = "free")  +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3])+
+  stat_compare_means(aes(group = immunosupression), label = "p.signif", vjust = 1) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+supval_S1Gv <- df_main %>%
+  filter(main != "Unknown") %>% mutate(immunosupression = replace_na(immunosupression, "CTRL")) %>%
+  select(ImageID, dataset, main, immunosupression, cells_mm2)
+
+
+
+#figure S1 G vi
+df_main <- df_main %>% mutate(
+  EDSS_cat2 = case_when(
+    EDSS_cat == "worsetill2" ~ "worse",
+    EDSS_cat == "worseover2" ~ "worse",
+    EDSS_cat == "similar" ~ "similar",
+    EDSS_cat == "CTRL" ~ "CTRL"
+  )
+)
+comp_edss2 <-  list(c("CTRL", "similar"), c("CTRL", "worse"), c("similar", "worse"))
+
+df_main %>% drop_na(EDSS_cat) %>% filter(!main == "Unknown") %>%
+ggplot(aes(x=EDSS_cat2, y=cells_mm2, fill=dataset)) +
+  ylab("cells / 1 mm2") + xlab("EDSS change") + 
+  facet_wrap(~ main, nrow = 2, scales = "free")  +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:5])+
+  stat_compare_means(comparisons = comp_edss2, label = "p.signif", vjust = 1) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+supval_S1Gvi <- df_main %>%
+  drop_na(EDSS_cat) %>% filter(main != "Unknown") %>% 
+  select(ImageID, dataset, main, EDSS_cat2, cells_mm2)
+
+
+
+```
+
+
+### Figure 2 ###
+Investigate how many of PD1+ICOS+/- "Tfh-like", "Tfc-like", and "Tfr-like" cells are BCL6+. 
+Same for ICOS+PD1- Th, Tc, and Treg cells.
+
+Chunks showing how data frames were edited
+
+Read in data and prepare it for plotting
+```{r}
+# files from scimap
+hc_f <- fread("/location/hc_phenotyped_kept.csv")
+ms_f <- fread("/location/ms_phenotyped_kept.csv")
+clinsum <- clin
+
+df_f <- rbind(hc_f, ms_f)
+head(df_f)
+
+#files from bcl6 status
+ms_bcl6 <- fread("/location/TMA_ms_BCL6status.csv")
+hc_bcl6 <- fread("/location/TMA_hc_BCL6status.csv")
+df_bcl6 <- bind_rows(ms_bcl6, hc_bcl6)
+
+colnames(df_bcl6)
+df_bcl6 <- df_bcl6 %>%
+  mutate(Cellid = CellID, CellID = as.character(CellID), CellID = paste(ImageID, CellID, sep = "_")) %>%
+  rename(BCL6_status = BCL6_status_4) %>%
+  select(ImageID, CellID, BCL6_status)
+
+f2 <- merge(df_f, df_bcl6, by = c("ImageID", "CellID"))
+
+f2 <- f2 %>% # incorportaion of the BCL6 status to follicular T cells
+  mutate(fine = recode(phenotype, #simplify "fine"
+                                "Th.ICOS.PD1" = "Th.PD1",
+                                "Treg.ICOS.PD1" = "Treg.PD1",
+                                "Tc.ICOS.PD1" = "Tc.PD1"),
+         BCL6 = recode(BCL6_status, 
+                                "med" = "BCL6",
+                                "hi" = "BCL6",
+                                "bg" = "neg",
+                                "low" = "neg"),
+         phenoBCL6 = paste(phenotype, BCL6, sep = "."), 
+         fineBCL6 = paste(fine, BCL6, sep = "."),
+         phenoBCL6 = str_replace(phenoBCL6, "\\.neg", ""), #remove crap
+         fineBCL6 = str_replace(fineBCL6, "\\.neg", ""),
+         phenoBCL6 =recode(phenoBCL6, 
+                           "Th.BCL6" ="Th", "Th.ICOS.BCL6" = "Th.ICOS",
+                           "Treg.ICOS.BCL6" = "Treg", "Treg.ICOS" = "Treg", 
+                           "Tc.BCL6" = "Tc", "Tc.ICOS.BCL6" = "Tc", "Tc.ICOS" = "Tc",
+                           "B.BCL6" = "B", "B.CD20.BCL6" = "B.CD20", "MB.CD20.CD27.BCL6" = "MB.CD20.CD27",
+                           "Unknown.BCL6" = "Unknown", "epithelium.BCL6" = "epithelium", "HEV.BCL6" = "HEV", "FDC.BCL6" = "FDC"),
+        fineBCL6 =recode(fineBCL6, 
+                           "Th.BCL6" ="Th", "Th.ICOS.BCL6" = "Th.ICOS",
+                           "Treg.ICOS.BCL6" = "Treg", "Treg.ICOS" = "Treg", 
+                           "Tc.BCL6" = "Tc", "Tc.ICOS.BCL6" = "Tc", "Tc.ICOS" = "Tc",
+                           "B.BCL6" = "B", "B.CD20.BCL6" = "B.CD20", "MB.CD20.CD27.BCL6" = "MB.CD20.CD27",
+                           "Unknown.BCL6" = "Unknown", "epithelium.BCL6" = "epithelium", "HEV.BCL6" = "HEV", "FDC.BCL6" = "FDC"))
+
+
+df_sum_long <- f2 %>%
+  pivot_longer(cols = c(fine, phenotype, phenoBCL6, fineBCL6), 
+               names_to = "category", values_to = "value") %>%
+  group_by(ID, ImageID, category, value) %>%
+  summarize(
+    n_celltype = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(ID, ImageID, category) %>%
+  mutate(
+    n_cells_crop = sum(n_celltype),
+    fr_celltype = n_celltype / n_cells_crop
+  ) %>%
+  ungroup()
+
+
+
+df_clin <- merge(clinsum, df_area, by = "ImageID")
+df_clin <- df_clin %>% select(!c(n.cells.crop, EDSS_dg, EDSS_last_FU, EDSS_change, EDSS_cat))
+df_clin <- df_clin %>% 
+  mutate(location2 = recode(location,
+                            "axillary" = "axillary",
+                            .default = "other"))
+
+df_sum_long <- merge(df_clin, df_sum_long, by = c("ID", "ImageID"))
+
+
+
+df_sum_long <- df_sum_long %>% 
+  group_by(ImageID, category, value) %>%
+  mutate(
+    cells_mm2 = n_celltype / area.mm2
+  ) %>%
+  ungroup()
+
+
+fwrite(df_sum_long, file = "/outs/fig2_dataframe_for_plotting.csv", row.names = F)
+```
+
+
+Plot
+```{r}
+df_sum_long <- fread("/outs/fig2_dataframe_for_plotting.csv")
+
+#figure 2A
+df_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc.PD1", "Tc.PD1.BCL6"),
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc"
+                    )) %>%
+ggplot(aes(x=dataset, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 2, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("T cell subsets") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+#data values
+sdf_fig2a <- df_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc.PD1", "Tc.PD1.BCL6"),
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc"
+                    )) %>%
+  select(ImageID, dataset, value, cells_mm2)
+
+
+
+#figure S2 A
+df_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c(
+             "Treg", "Treg.PD1",
+             "Tc" ),
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Treg", "Treg.PD1",
+             "Tc")),
+         value =recode(value,
+                    "Treg" ="BCL6-PD1-Treg",
+                    "Treg.PD1" = "PD1+ Treg",
+                    "Tc"="PD1-Tc")) %>%
+ggplot(aes(x=dataset, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("T cell subsets") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+stat_fig <- compare_means(cells_mm2 ~ dataset, 
+                          data = df_sum_long %>% filter(category %in% "fineBCL6", !MS_status %in% "beforeMS"), 
+                          group.by = "value", 
+                          p.adjust.method = "BH")
+
+#data values
+supval_S2A <- df_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c(
+             "Treg", "Treg.PD1",
+             "Tc" ),
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Treg", "Treg.PD1",
+             "Tc")),
+         value =recode(value,
+                    "Treg" ="BCL6-PD1-Treg",
+                    "Treg.PD1" = "PD1+ Treg",
+                    "Tc"="PD1-Tc")) %>%
+  select(ImageID, dataset, value, cells_mm2)
+
+
+
+
+#figure 2B
+df_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27"),
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27")),
+         value =recode(value,
+                    "B.CD20" ="naive B",
+                    "FoB.CD20.CD21" = "FoB",
+                    "FoB.CD20.CD21.BCL6" = "BCL6+ FoB",
+                    "MB.CD20.CD27" = "MB")) %>%
+ggplot(aes(x=dataset, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("B cell subsets") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_fig2c <- df_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27"),
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27")),
+         value =recode(value,
+                    "B.CD20" ="naive B",
+                    "FoB.CD20.CD21" = "FoB",
+                    "FoB.CD20.CD21.BCL6" = "BCL6+ FoB",
+                    "MB.CD20.CD27" = "MB")) %>%
+  select(ImageID, dataset, value, cells_mm2)
+
+
+
+
+#figure S2 C
+s_fig2c <- df_sum_long %>% filter(follicle %in% c("prim", "sec"),
+  category %in% "fineBCL6", 
+  value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6",
+             "B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27"),
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6",
+             "B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27")),
+         value =recode(value,
+                    "Th.ICOS" = "ICOS+ Th",
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.PD1" = "PD1+ Treg",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Treg" ="BCL6-PD1-Treg",
+                    "Tc"="PD1-Tc",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc",
+                    "B.CD20" ="naive B",
+                    "FoB.CD20.CD21" = "FoB",
+                    "FoB.CD20.CD21.BCL6" = "BCL6+ FoB",
+                    "MB.CD20.CD27" = "MB"
+                    ))
+s_fig2c %>%
+ggplot(aes(x=follicle, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 3, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("T cell subsets") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s2c <- s_fig2c %>% select(ImageID, dataset, follicle, value, cells_mm2)
+
+
+
+#follicle, stats
+stat_fig <- compare_means(cells_mm2 ~ dataset, 
+                          data = df_sum_long %>% filter(category %in% "fineBCL6", !MS_status %in% "beforeMS"), 
+                          group.by = c("follicle", "value"), 
+                          p.adjust.method = "BH")
+
+
+
+
+
+#figure S2 D ii
+s_fig2dii <- df_sum_long %>% filter(category %in% "fineBCL6",
+                       !MS_type %in% "PPMS", 
+                       !MS_status %in% "beforeMS",
+                       value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")) %>%
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                    "Th.ICOS" = "ICOS+ Th",
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.PD1" = "PD1+ Treg",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Treg" ="BCL6-PD1-Treg",
+                    "Tc"="PD1-Tc",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc"
+                    ))
+s_fig2dii %>%
+ggplot(aes(x=MS_type, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 3, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("MS type") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(comparisons = comp_mstype, label = "p.signif", vjust = 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s2dii <- s_fig2dii %>% select(ImageID, dataset, MS_type, value, cells_mm2)
+
+
+
+#figure S2 D iii
+comp_immunosup <-  list(c("CTRL", "no"), c("no", "yes"), c("CTRL", "yes"))
+s_fig2diii <- df_sum_long %>% 
+  filter(category %in% "fineBCL6",
+                       !MS_type %in% "PPMS", 
+                       !MS_status %in% "beforeMS",
+                       value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")) %>%
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                    "Th.ICOS" = "ICOS+ Th",
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.PD1" = "PD1+ Treg",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Treg" ="BCL6-PD1-Treg",
+                    "Tc"="PD1-Tc",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc"
+                    )) %>%
+  mutate(immunosupression = ifelse(immunosupression == "", "CTRL", immunosupression))
+s_fig2diii %>%
+  ggplot(aes(x=immunosupression, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 3, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("Immunosuppression") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(comparisons = comp_immunosup, label = "p.signif", vjust = 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s2diii <- s_fig2diii %>% select(ImageID, dataset, immunosupression, value, cells_mm2)
+
+
+
+
+#figure S2 D iv
+s_fig2div <- df_sum_long %>% filter(category %in% "fineBCL6",
+                       !MS_type %in% "PPMS", 
+                       !MS_status %in% "beforeMS",
+                       value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")) %>%
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                    "Th.ICOS" = "ICOS+ Th",
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.PD1" = "PD1+ Treg",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Treg" ="BCL6-PD1-Treg",
+                    "Tc"="PD1-Tc",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc"
+                    ))
+s_fig2div %>% 
+  ggplot(aes(x=age, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 3, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("Age") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s2div <- s_fig2div %>% select(ImageID, dataset, age, value, cells_mm2)
+
+
+
+#figure S2 D i
+s_fig2di <- df_sum_long %>% filter(category %in% "fineBCL6",
+                       !MS_type %in% "PPMS", 
+                       !MS_status %in% "beforeMS",
+                       !LN_type %in% "healthy",
+                       value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")) %>%
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                    "Th.ICOS" = "ICOS+ Th",
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.PD1" = "PD1+ Treg",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Treg" ="BCL6-PD1-Treg",
+                    "Tc"="PD1-Tc",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc"
+                    ))
+s_fig2di %>% 
+  ggplot(aes(x=LN_type, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 3, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("Maligancy status") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s2di <- s_fig2di %>% select(ImageID, dataset, LN_type, value, cells_mm2)
+
+
+#figure S2 D v
+s_fig2dv <- df_sum_long %>% filter(category %in% "fineBCL6", 
+                       !MS_status %in% "beforeMS",value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")) %>%
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg", "Treg.PD1", "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc", "Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                    "Th.ICOS" = "ICOS+ Th",
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.PD1" = "PD1+ Treg",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Treg" ="BCL6-PD1-Treg",
+                    "Tc"="PD1-Tc",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc"
+                    ))
+
+s_fig2dv %>% ggplot(aes(x=dataset, y=cells_mm2, fill=location2)) +
+  facet_wrap(~ value, nrow = 3, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("T cell subsets") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[4:5])+
+  stat_compare_means(aes(group = location2), label = "p.signif", vjust = 1) + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s2dv <- s_fig2dv %>% select(ImageID, dataset, LN_type, value, cells_mm2)
+```
+
+
+### Figure 3 ###
+
+Read in data and prepare it for plotting
+```{r}
+df_areas <- fread("/location/ms_hc_areas.csv") #found from the same folder as images
+f3 <- merge(f2, df_areas, by = "CellID")
+f3 <- f3 %>% filter(!ROI_Bzone %in% "artefact", !ROI_cd21 %in% "artefact") %>%
+  mutate(
+    ROI = case_when(
+    ROI_cd21 == "cd21" ~ "Follicle",
+    ROI_Bzone == "Other" ~ "Tzone",
+    TRUE ~ "Bzone"))
+
+
+#make a long form with cell type fractions
+df3_sum_long <- f3 %>%
+  pivot_longer(cols = c(phenotype, phenoBCL6, fineBCL6), 
+               names_to = "category", values_to = "value") %>%
+  group_by(ID, ImageID, ROI, category, value) %>%
+  summarize(
+    n_celltype = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(ID, ImageID, ROI, category) %>%
+  mutate(
+    n_cells_area = sum(n_celltype),
+    fr_cells_area = n_celltype / n_cells_area
+  ) %>%
+  ungroup()
+
+df3_sum_long <- merge(df_clin, df3_sum_long, by = c("ID", "ImageID"))
+df3_sum_long$ROI <- factor(df3_sum_long$ROI, levels = c("Tzone", "Bzone", "Follicle"))
+
+
+```
+
+
+```{r}
+
+#figure 3B
+df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6"),
+  ROI %in% c("Bzone", "Follicle"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6")),
+         value =recode(value,
+                       "Th.ICOS" = "ICOS+ Th",
+                       "Th.PD1"="Tfh-like",
+                       "Th.PD1.BCL6" ="Tfh"),
+         ROI =recode(ROI,
+                       "Bzone" = "Mantle"),
+         ROI = factor(ROI, levels = c("Mantle", "Follicle"))) %>%
+  ggplot(aes(x=ROI, y=fr_cells_area, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("% of all in region") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_fig3b <- df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6"),
+  ROI %in% c("Bzone", "Follicle"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6")),
+         value =recode(value,
+                       "Th.ICOS" = "ICOS+ Th",
+                       "Th.PD1"="Tfh-like",
+                       "Th.PD1.BCL6" ="Tfh"),
+         ROI =recode(ROI,
+                       "Bzone" = "Mantle"),
+         ROI = factor(ROI, levels = c("Mantle", "Follicle"))) %>%
+  select(ImageID, dataset, ROI, value, fr_cells_area)
+
+
+#figure 3C
+df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c(
+             "Treg.PD1.BCL6"), 
+  ROI %in% c("Follicle"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Treg.PD1.BCL6")),
+         value =recode(value,
+                       "Treg.PD1.BCL6" = "PD1+ Tfr"),
+         ROI =recode(ROI,
+                       "Bzone" = "Mantle")) %>%
+  ggplot(aes(x=ROI, y=fr_cells_area, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("% of all in region") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_fig3ca <- df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c(
+             "Treg.PD1.BCL6"), 
+  ROI %in% c("Follicle"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Treg.PD1.BCL6")),
+         value =recode(value,
+                       "Treg.PD1.BCL6" = "PD1+ Tfr")) %>%
+  select(ImageID, dataset, ROI, value, fr_cells_area)
+
+df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c(
+             "Treg"), 
+  ROI %in% c("Bzone"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Treg")),
+         ROI =recode(ROI,
+                       "Bzone" = "Mantle")) %>%
+  ggplot(aes(x=ROI, y=fr_cells_area, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("% of all in region") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_fig3c <- df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c(
+             "Treg"), 
+  ROI %in% c("Bzone"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Treg")),
+         ROI =recode(ROI,
+                       "Bzone" = "Mantle")) %>%
+  select(ImageID, dataset, ROI, value, fr_cells_area)
+sdf_fig3c <- rbind(sdf_fig3c, sdf_fig3ca)
+
+
+
+#figure S3A
+s_fig3a <- df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c(
+             "Treg.BCL6"), 
+  ROI %in% c("Bzone", "Follicle"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Treg.BCL6")),
+         value =recode(value,
+                       "Treg.BCL6" = "Tfr"),
+         ROI =recode(ROI,
+                       "Bzone" = "Mantle"),
+         ROI = factor(ROI, levels = c("Mantle", "Follicle")))
+s_fig3a %>% 
+  ggplot(aes(x=ROI, y=fr_cells_area, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("% of all in region") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s3a <- s_fig3a %>% select(ImageID, dataset, ROI, value, fr_cells_area)
+
+
+#figure 3D
+df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c(
+            "Tc.PD1", "Tc.PD1.BCL6"), 
+  ROI %in% c("Bzone", "Follicle"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                       "Tc.PD1" = "PD1+ Tc",
+                       "Tc.PD1.BCL6" = "Tfc"),
+         ROI =recode(ROI,
+                       "Bzone" = "Mantle"),
+         ROI = factor(ROI, levels = c("Mantle", "Follicle"))) %>%
+  ggplot(aes(x=ROI, y=fr_cells_area, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("% of all in region") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+stat_fig <- compare_means(fr_cells_area ~ dataset, 
+                          data = df3_sum_long %>% filter(category %in% "fineBCL6", 
+                                                         location %in% "axillary", 
+                                                         !MS_status %in% "beforeMS",
+                                                         !ROI %in% "Tzone"), 
+                          group.by = c("ROI", "value"), 
+                          p.adjust.method = "BH") %>% 
+  arrange(p)
+
+sdf_fig3d <- df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c(
+            "Tc.PD1", "Tc.PD1.BCL6"), 
+  ROI %in% c("Bzone", "Follicle"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>% 
+  mutate(value = factor(value, levels = c("Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                       "Tc.PD1" = "PD1+ Tc",
+                       "Tc.PD1.BCL6" = "Tfc"),
+         ROI =recode(ROI,
+                       "Bzone" = "Mantle"),
+         ROI = factor(ROI, levels = c("Mantle", "Follicle"))) %>%
+  select(ImageID, dataset, ROI, value, fr_cells_area)
+
+
+#figure S3B
+s_fig3b <- df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27"),
+  ROI %in% c("Bzone", "Follicle"), location %in% "axillary",
+  !MS_status %in% "beforeMS") %>%
+  mutate(value = factor(value, levels = c("B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27")),
+         value =recode(value,
+                    "B.CD20" ="naive B",
+                    "FoB.CD20.CD21" = "FoB",
+                    "FoB.CD20.CD21.BCL6" = "BCL6+ FoB",
+                    "MB.CD20.CD27" = "MB"),
+         ROI =recode(ROI,
+                       "Bzone" = "Mantle"),
+         ROI = factor(ROI, levels = c("Mantle", "Follicle")))
+s_fig3a %>%
+  ggplot(aes(x=ROI, y=fr_cells_area, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("% of all in region") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s3b <- s_fig3b %>% select(ImageID, dataset, ROI, value, fr_cells_area)
+
+
+#figure 3E
+#Tfh/Tfr ratio at the Bzone and follicle, for TFR all FOXP3+ was used
+f3_rat <- f3 %>% 
+  mutate(tf_pheno = recode(fineBCL6, 
+                           "Th.PD1.BCL6" = "Tfh",
+                           "Treg.PD1" = "Treg",
+                           "Treg.BCL6" = "Treg",
+                           "Treg.PD1.BCL6" = "Treg")) %>%
+  filter(tf_pheno %in% c("Tfh", "Treg"),
+         ROI %in% c("Bzone", "Follicle")) %>% 
+  group_by(ImageID, ROI) %>%
+  summarize(
+    nTfh = sum(tf_pheno == "Tfh"),
+    nTfr = sum(tf_pheno == "Treg"),
+    ratio = nTfh/nTfr
+  )
+f3_rat <- merge(f3_rat, df_clin, by = c("ImageID"))
+f3_rat$ROI <- factor(f3_rat$ROI, levels = c("Tzone", "Bzone", "Follicle"))
+
+
+f3_rat %>%
+  filter(ROI %in% c("Bzone", "Follicle"), 
+         !ID %in% c("730", "644", "725", "907", "919", "923"), #outliers removed from subanalysis
+         location %in% "axillary", !MS_status %in% "beforeMS") %>%
+  mutate(ROI =recode(ROI,
+                       "Bzone" = "Mantle"),
+         ROI = factor(ROI, levels = c("Mantle", "Follicle"))) %>% 
+  ggplot(aes(x=dataset, y=ratio, fill=dataset)) +
+  ylab("Tfh / Tfr ratio") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  facet_wrap(~ ROI, nrow = 1, scales = "free")  +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3])+
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+
+sdf_fig3e <- f3_rat %>%
+  filter(ROI %in% c("Bzone", "Follicle"), 
+         !ID %in% c("730", "644", "725", "907", "919", "923"),
+         location %in% "axillary", !MS_status %in% "beforeMS") %>%
+  mutate(ROI =recode(ROI,
+                       "Bzone" = "Mantle"),
+         ROI = factor(ROI, levels = c("Mantle", "Follicle"))) %>% 
+  rename(Tfh_Tfr_ratio = ratio) %>%
+  select(ImageID, dataset, ROI, Tfh_Tfr_ratio)
+
+
+stat_fig <- compare_means(ratio ~ dataset, 
+                          data = f3_rat %>% filter(
+                                                          ROI %in% c("Bzone", "Follicle"), 
+                                                          !ID %in% c("730", "644", "725", "907", "919",
+                                                                     "923"),
+                                                          location %in% "axillary", 
+                                                          !MS_status %in% "beforeMS"), 
+                          group.by = c("ROI"), 
+                          p.adjust.method = "BH") %>% 
+                          arrange(p)
+
+
+#figure 3F
+#summary data frame which calculates follicle / mantle ratio across cell types
+
+fr_in_area_alltypes <- f3 %>%
+  filter(ROI %in% c("Bzone", "Follicle")) %>%
+  group_by(ImageID, ID, dataset, ROI) %>%
+  mutate(total = n()) %>%
+  ungroup() %>%
+  group_by(ImageID, ID, dataset, ROI, fineBCL6) %>%
+  summarise(freq = n() / first(total), .groups = "drop") %>%
+  pivot_wider(
+    names_from = ROI,
+    values_from = freq,
+    names_prefix = "freq_"
+  ) %>%
+  rename(freq_mantle = freq_Bzone, freq_follicle = freq_Follicle) %>%
+  mutate(
+    ratio = freq_follicle / freq_mantle
+  ) %>%
+  filter(!is.na(ratio))  # optional: drop rows where either ROI is missing
+
+
+
+clinsum_sub <- clinsum %>% select(ImageID, location, malign, malign_type, LN_type, MS_type, follicle, age, MS_status)
+fr_in_area_alltypes <- merge(fr_in_area_alltypes, clinsum_sub, by ="ImageID")
+
+
+#figure 3F tfh
+fr_in_area_alltypes %>%
+  filter(location %in% "axillary", !MS_status %in% "beforeMS",
+         fineBCL6 %in% c("Th.PD1", "Th.PD1.BCL6")) %>%
+  mutate(fineBCL6 = factor(fineBCL6, levels = c("Th.PD1", "Th.PD1.BCL6")),
+         fineBCL6 =recode(fineBCL6,
+                       "Th.PD1"="Tfh-like",
+                       "Th.PD1.BCL6" ="Tfh")) %>%
+ggplot(aes(x=dataset, y=ratio, fill=dataset)) +
+  ylab("Follicle / Mantle ratio") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  facet_wrap(~fineBCL6) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+
+fr_in_area6_nopre <- fr_in_area_alltypes %>%
+  filter(location %in% "axillary", !MS_status %in% "beforeMS",
+         fineBCL6 %in% c("Th.PD1", "Th.PD1.BCL6"))
+stat_fig <- compare_means(ratio ~ dataset, data = fr_in_area6_nopre,
+                group.by = c("fineBCL6"), p.adjust.method = "BH")
+
+
+sdf_fig3f <- fr_in_area_alltypes %>%
+  filter(location %in% "axillary", !MS_status %in% "beforeMS",
+         fineBCL6 %in% c("Th.PD1", "Th.PD1.BCL6")) %>%
+  select(ImageID, dataset, fineBCL6, ratio) %>% 
+  rename(value = fineBCL6, fol_mantle_ratio = ratio) %>% 
+  mutate(value =recode(value,
+                       "Th.PD1"="Tfh-like",
+                       "Th.PD1.BCL6" ="Tfh"))
+
+
+
+#figure S3C
+fr_in_area_treg <- f3 %>%
+  mutate(fineBCL6 = recode(fineBCL6, 
+                           "Treg.PD1" = "Treg",
+                           "Treg.BCL6" = "Treg",
+                           "Treg.PD1.BCL6" = "Treg")) %>%
+  filter(ROI %in% c("Bzone", "Follicle")) %>%
+  group_by(ImageID, ID, dataset, ROI) %>%
+  mutate(total = n()) %>%
+  ungroup() %>%
+  filter(fineBCL6 == "Treg") %>%
+  group_by(ImageID, ID, dataset, ROI) %>%
+  summarise(freq = n() / first(total), .groups = "drop") %>%
+  pivot_wider(names_from = ROI, values_from = freq, names_prefix = "freq_") %>%
+  rename(freq_mantle = freq_Bzone, freq_follicle = freq_Follicle) %>%
+  mutate(
+    ratio = freq_follicle / freq_mantle,
+    celltype = "Treg"
+  )
+fr_in_area_treg <- merge(fr_in_area_treg, clinsum_sub, by ="ImageID")
+
+s_fig3c <- fr_in_area_treg %>%
+  filter(location %in% "axillary", !MS_status %in% "beforeMS") %>% 
+  mutate(dataset =recode(dataset,
+                       "HC" = "CTRL"),
+         dataset = factor(dataset, levels = c("CTRL", "MS")))
+s_fig3c %>%
+ggplot(aes(x=dataset, y=ratio, fill=dataset)) +
+  ylab("Follicle / Mantle ratio") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  facet_wrap(~celltype) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(aes(group = dataset), label = "p.signif", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+
+
+sdf_s3c <- s_fig3c %>% select(ImageID, dataset, celltype, ratio)
+
+
+```
+
+
+
+
+### Figure 4 ###
+
+Preparing dataframes for neighbourhood analysis in scimap
+```{r}
+ms_all <-  fread("/location/ms_phenotyped.csv")
+hc_all <-  fread("/location/hc_phenotyped.csv")
+cyto <- rbind(ms_all, hc_all)
+
+f4 <- f3 %>% 
+  mutate(
+    spatialpheno = case_when( #täytyy tehdä spatpheno2 jossa Treg poolattu yhteen
+      fineBCL6 == "Th.PD1" & ROI == "Bzone" ~ "Mantle.Tfh.like",
+      fineBCL6 == "Th.PD1.BCL6" & ROI == "Bzone" ~ "Mantle.Tfh",
+      fineBCL6 == "Th.ICOS" & ROI == "Bzone" ~ "Mantle.ICOS.Th",
+      fineBCL6 == "Th" & ROI == "Bzone" ~ "Mantle.Th",
+      fineBCL6 == "Treg.PD1" & ROI == "Bzone" ~ "Mantle.PD1.Treg", 
+      fineBCL6 == "Treg.PD1.BCL6" & ROI == "Bzone" ~ "Mantle.PD1.Tfr",
+      fineBCL6 == "Treg.BCL6" & ROI == "Bzone" ~ "Mantle.Tfr",
+      fineBCL6 == "Treg" & ROI == "Bzone" ~ "Mantle.Treg",
+      fineBCL6 == "Tc.PD1.BCL6" & ROI == "Bzone" ~ "Mantle.Tfc",
+      fineBCL6 == "Tc.PD1" & ROI == "Bzone" ~ "Mantle.PD1.Tc",
+      fineBCL6 == "Tc" & ROI == "Bzone" ~ "Mantle.Tc",
+      fineBCL6 == "B.CD20" & ROI == "Bzone" ~ "Mantle.naiveB",
+      fineBCL6 == "MB.CD20.CD27" & ROI == "Bzone" ~ "Mantle.MB",
+      fineBCL6 == "Treg.PD1" & ROI == "Tzone" ~ "Treg",
+      fineBCL6 == "Treg.PD1.BCL6" & ROI == "Tzone" ~ "Treg",
+      fineBCL6 == "Treg.BCL6" & ROI == "Tzone" ~ "Treg",
+      fineBCL6 == "Th.PD1" & ROI == "Follicle" ~ "GC.Tfh.like",
+      fineBCL6 == "Th.PD1.BCL6" & ROI == "Follicle" ~ "GC.Tfh",
+      fineBCL6 == "Th.ICOS" & ROI == "Follicle" ~ "GC.ICOS.Th",
+      fineBCL6 == "Th" & ROI == "Follicle" ~ "GC.Th",
+      fineBCL6 == "Treg.PD1" & ROI == "Follicle" ~ "GC.PD1.Treg", 
+      fineBCL6 == "Treg.PD1.BCL6" & ROI == "Follicle" ~ "GC.PD1.Tfr",
+      fineBCL6 == "Treg.BCL6" & ROI == "Follicle" ~ "GC.Tfr",
+      fineBCL6 == "Treg" & ROI == "Follicle" ~ "GC.Treg",
+      fineBCL6 == "Tc.PD1.BCL6" & ROI == "Follicle" ~ "GC.Tfc",
+      fineBCL6 == "Tc.PD1" & ROI == "Follicle" ~ "GC.PD1.Tc",
+      fineBCL6 == "Tc" & ROI == "Follicle" ~ "GC.Tc",
+      fineBCL6 == "B.CD20" & ROI == "Follicle" ~ "GC.naiveB",
+      fineBCL6 == "MB.CD20.CD27" & ROI == "Follicle" ~ "GC.MB",
+      TRUE ~ as.character(fineBCL6))) %>% 
+  mutate(
+    spatialpheno2 = case_when(
+      fineBCL6 == "Th.PD1" & ROI == "Bzone" ~ "Mantle.Tfh.like",
+      fineBCL6 == "Th.PD1.BCL6" & ROI == "Bzone" ~ "Mantle.Tfh",
+      fineBCL6 == "Th.ICOS" & ROI == "Bzone" ~ "Mantle.ICOS.Th",
+      fineBCL6 == "Th" & ROI == "Bzone" ~ "Mantle.Th",
+      fineBCL6 == "Treg.PD1" & ROI == "Bzone" ~ "Mantle.Tfr", 
+      fineBCL6 == "Treg.PD1.BCL6" & ROI == "Bzone" ~ "Mantle.Tfr",
+      fineBCL6 == "Treg.BCL6" & ROI == "Bzone" ~ "Mantle.Tfr",
+      fineBCL6 == "Treg" & ROI == "Bzone" ~ "Mantle.Tfr",
+      fineBCL6 == "Tc.PD1.BCL6" & ROI == "Bzone" ~ "Mantle.Tfc",
+      fineBCL6 == "Tc.PD1" & ROI == "Bzone" ~ "Mantle.PD1.Tc",
+      fineBCL6 == "Tc" & ROI == "Bzone" ~ "Mantle.Tc",
+      fineBCL6 == "B.CD20" & ROI == "Bzone" ~ "Mantle.naiveB",
+      fineBCL6 == "MB.CD20.CD27" & ROI == "Bzone" ~ "Mantle.MB",
+      fineBCL6 == "Treg.PD1" & ROI == "Tzone" ~ "Treg",
+      fineBCL6 == "Treg.PD1.BCL6" & ROI == "Tzone" ~ "Treg",
+      fineBCL6 == "Treg.BCL6" & ROI == "Tzone" ~ "Treg",
+      fineBCL6 == "Th.PD1" & ROI == "Follicle" ~ "GC.Tfh.like",
+      fineBCL6 == "Th.PD1.BCL6" & ROI == "Follicle" ~ "GC.Tfh",
+      fineBCL6 == "Th.ICOS" & ROI == "Follicle" ~ "GC.ICOS.Th",
+      fineBCL6 == "Th" & ROI == "Follicle" ~ "GC.Th",
+      fineBCL6 == "Treg.PD1" & ROI == "Follicle" ~ "GC.Tfr", 
+      fineBCL6 == "Treg.PD1.BCL6" & ROI == "Follicle" ~ "GC.Tfr",
+      fineBCL6 == "Treg.BCL6" & ROI == "Follicle" ~ "GC.Tfr",
+      fineBCL6 == "Treg" & ROI == "Follicle" ~ "GC.Tfr",
+      fineBCL6 == "Tc.PD1.BCL6" & ROI == "Follicle" ~ "GC.Tfc",
+      fineBCL6 == "Tc.PD1" & ROI == "Follicle" ~ "GC.PD1.Tc",
+      fineBCL6 == "Tc" & ROI == "Follicle" ~ "GC.Tc",
+      fineBCL6 == "B.CD20" & ROI == "Follicle" ~ "GC.naiveB",
+      fineBCL6 == "MB.CD20.CD27" & ROI == "Follicle" ~ "GC.MB",
+      TRUE ~ as.character(fineBCL6))) %>%
+  select(!dataset)
+
+
+f4 <- merge(f4, df_clin, by = c("ImageID", "ID"))
+f4 <- merge(cyto, f4, by = c("CellID", "ImageID", "ID"))
+f4 <- f4 %>% 
+  relocate(ID, .before = CellID) %>%
+  relocate(ImageID, .after = Roundness) %>% 
+  select(-c(tma, main, BCL6_status, BCL6, ROI_Bzone, ROI_cd21, gender, malign, MS_fu_time, age_ms_onset, age_sample, y_onset_sample))
+
+f4_ax <- f4 %>% filter(location %in% "axillary", !MS_status %in% "beforeMS")
+f4_pre <- f4 %>% filter(!MS_status %in% "afterMS")
+
+fwrite(f4, "/location/rev1_all_for_nb_spatialphenotypes.csv", row.names = FALSE)
+fwrite(f4_ax, "/location/rev1_axillary_NOpreDG_for_nb_spatialphenotypes.csv", row.names = FALSE)
+fwrite(f4_pre, "/location/rev1_preDGandCONTROLS_data_for_nb_spatialphenotypes.csv", row.names = FALSE)
+```
+
+Spatial interactions 
+```{r}
+interactions2 <- fread("/location/REV1_spatialpheno2_nb_spat_interaction_knn10.csv")
+
+#combine phenotype and its neighbour
+interactions2$paired_interaction <- paste0(interactions2$phenotype, '_', interactions2$neighbour_phenotype)
+
+#edit dataframe
+interactions2 <- interactions2 %>%
+  select(-V1, -starts_with("pvalue"), -phenotype, -neighbour_phenotype) %>%
+  filter(!grepl("Unknown", paired_interaction)) %>%
+  column_to_rownames("paired_interaction") %>% # set rowname
+  t() %>% #transpose
+  as.data.frame() %>% 
+  rownames_to_column("ImageID") %>% #imageid to its own column
+  mutate(ID = sub("\\_.*", "", ImageID)) #set sampleid
+  
+#choose needed clinical info
+cl <- clinsum %>% 
+  select(ID, gender, dataset, malign, LN_type)
+
+cl$ID <- as.character(cl$ID)
+ncol(interactions2)
+tail(colnames(interactions2),20)
+#merge
+df_int2 <- merge(cl, interactions2, by = "ID")
+glimpse(df_int2)
+
+#change as numeric
+head(colnames(df_int2),20)
+ncol(df_int2)
+df_int2$dataset <- as.factor(df_int2$dataset)
+df_int2$dataset <- relevel(df_int2$dataset, ref = "MS")
+
+#identify interactions from which statistics cannot be calculated
+pois <- df_int2 %>% group_by(dataset) %>% summarise_at(vars(7:1301), mean, na.rm = TRUE) %>% t() %>% as.data.frame() %>%
+  filter(V1 == 0 | V1 == 1 | V2 == 0 | V2 == 1) %>% rownames()
+#and remove them
+df_int2 <- df_int2 %>% 
+  select(!all_of(pois))
+
+#Statistics
+head(colnames(df_int2),20)
+ncol(df_int2)
+#library(rstatix)
+#wilcox test
+list2_dataset<-list()
+for(i in c(7:1217)){
+  fmla <- formula(paste(names(df_int2)[i], " ~ dataset"))
+  list2_dataset[[i]]<-wilcox.test(fmla, data = df_int2, conf.int=T)
+}
+
+#then effect size
+library(coin)
+list2_dataset2<-list()
+for(i in c(7:1217)){
+  fmla <- formula(paste(names(df_int2)[i], " ~ dataset"))
+  list2_dataset2[[i]]<-wilcox_effsize(fmla, data = df_int2, paired = FALSE)
+}
+
+#then bind data frames
+#list_dataset - p.value and data.name
+#list_dataset2 - effsize and .y.
+#first into long list
+list2_dataset <- list2_dataset[-c(1:4)]
+length(list2_dataset)  #1211
+df2_list1 <- data.frame(matrix(unlist(list2_dataset), nrow=1211, byrow=TRUE),stringsAsFactors=FALSE)
+head(df2_list1)
+colnames(df2_list1) <- c("statistic", "p.val", "null", "type", "test","celltypes", "conf.int1", "conf.int2", "estimate")
+
+list2_dataset2 <- list2_dataset2[-c(1:6)]
+length(list2_dataset2)  #1211
+df2_list2 <- data.frame(matrix(unlist(list2_dataset2), nrow=1211, byrow=TRUE),stringsAsFactors=FALSE)
+head(df2_list2)
+colnames(df2_list2) <- c("celltype.pair", "stage.i", "stage.p", "effect.size", "n1","n2", "magnitude")
+
+df2_list1 <- df2_list1 %>% 
+  mutate(celltype.pair = sub(" .*", "", celltypes))
+
+#then merge
+df_nb2 <- merge(df2_list1, df2_list2, by = "celltype.pair")
+head(df_nb2)
+glimpse(df_nb2)
+
+#separate celltypes
+df_nb2 <- df_nb2 %>% 
+  select(p.val, estimate, effect.size, celltype.pair) %>% 
+  separate("celltype.pair", c("celltype", "neighbor"), sep="_") %>% 
+  mutate_at(c(1:3), as.numeric) %>% 
+  mutate(effect.size = effect.size * sign(estimate)) #sign() returns -1 if value is < 0, and 1 if value is > 0 --> this gives a direction to effect.size
+
+dim(df_nb2[which(df_nb2$p.val < 0.05),])
+
+#figure 4B
+#plot only selected cell types
+df_nb2 %>% #remove unnecessary celltypes
+  filter(!celltype %in% c("B", "Treg","Th.ICOS", "Th", "Tc.PD1.BCL6", "Tc.PD1", "Tc", "MB.CD20.CD27", "epithelium", "B.CD20", 
+                          "Th.PD1.BCL6", "Th.PD1"),
+         !neighbor %in% c("B", "Treg","Th.ICOS", "Th", "Tc.PD1.BCL6", "Tc.PD1", "Tc", "MB.CD20.CD27", "epithelium", "B.CD20",
+                          "Th.PD1.BCL6", "Th.PD1")) %>%
+ggplot(aes(x=celltype, y=neighbor, color=effect.size)) + geom_point(aes(size=p.val)) + theme_classic() + xlab(NULL) + ylab(NULL) + 
+  labs(title="Wilcoxon test of cell type2 interactions between MS and CTRL", subtitle = "Effect: red is increased in MS, \nBlue is inceased in HC", 
+       color="Effect size with direction") +
+  ylab("Neighbor") + xlab("Cell type") +
+  scale_color_gradient2(low = "#0b71b0", high="#cc2127", mid = "gray90", breaks=seq(-1,0,1), limits=c(-1, 1)) +
+  scale_size_area("p.val", trans="log10",max_size = 1, breaks=c( 1e-5, 1e-1, 0.05), limits=c(1e-5,0.05)) +
+  theme(axis.text=element_text(size=rel(0.5)), axis.text.x = element_text(angle=45, hjust=1), strip.placement = "outside",strip.background = element_blank())+
+  theme(plot.title = element_text(size = 12, face = "bold"), aspect.ratio=1, panel.border = element_rect(colour = "black", size=1.5, fill=NA)) 
+
+
+head(df_nb2)
+sdf_fig4b <- df_nb2 %>% #remove unnecessary celltypes
+  filter(!celltype %in% c("B", "Treg","Th.ICOS", "Th", "Tc.PD1.BCL6", "Tc.PD1", "Tc", "MB.CD20.CD27", "epithelium", "B.CD20", 
+                          "Th.PD1.BCL6", "Th.PD1"),
+         !neighbor %in% c("B", "Treg","Th.ICOS", "Th", "Tc.PD1.BCL6", "Tc.PD1", "Tc", "MB.CD20.CD27", "epithelium", "B.CD20",
+                          "Th.PD1.BCL6", "Th.PD1"))
+
+
+#plots for figure 4C
+df2_box <- df_int2 %>% 
+  pivot_longer(
+    cols = 7:ncol(.), 
+    names_to = "interacting_cells",
+    values_to = "interaction_value") %>%
+  separate(interacting_cells, into = c("cell_type1", "cell_type2"), sep = "_", remove = FALSE) %>%
+  mutate(dataset = fct_relevel(dataset, "CTRL"))
+
+
+clinfol <- df_clin %>% select(ID, follicle) 
+df2_box <- merge(df2_box, clinfol, by = "ID")
+
+
+#Figure 4C mantle
+df2_box %>% 
+  filter(cell_type1 %in% c("Mantle.naiveB"),
+         cell_type2 %in% "Mantle.Tfh",
+         follicle %in% "sec") %>%
+  mutate(cell_type1 = factor(cell_type1, levels = c("Mantle.naiveB"))) %>%
+  ggplot(aes(x=dataset, y=interaction_value, fill = dataset)) +
+  ylab("Cellular interaction")  + xlab("Interactions in Tfh cell neighbourhoods")+
+  facet_wrap(~ cell_type1, scales = "free", nrow = 1) +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+sdf_fig4cb <- df2_box %>% 
+  filter(cell_type1 %in% c("Mantle.naiveB"),
+         cell_type2 %in% "Mantle.Tfh",
+         follicle %in% "sec") %>%
+  mutate(cell_type1 = factor(cell_type1, levels = c("Mantle.naiveB"))) %>%
+  select(ImageID, dataset, cell_type1, cell_type2, interaction_value)
+
+#Figure 4c follicle
+df2_box %>% 
+  filter(cell_type1 %in% c("GC.naiveB","FoB.CD20.CD21", "FoB.CD20.CD21.BCL6"),
+         cell_type2 %in% "GC.Tfh",
+         follicle %in% "sec") %>%
+  mutate(cell_type1 = factor(cell_type1, levels = c("GC.naiveB","FoB.CD20.CD21", "FoB.CD20.CD21.BCL6"))) %>%
+  ggplot(aes(x=dataset, y=interaction_value, fill = dataset)) +
+  ylab("Cellular interaction")  + xlab("Interactions in Tfh cell neighbourhoods")+
+  facet_wrap(~ cell_type1, scales = "free", nrow = 1) +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+sdf_fig4c <- df2_box %>% 
+  filter(cell_type1 %in% c("GC.naiveB","FoB.CD20.CD21", "FoB.CD20.CD21.BCL6"),
+         cell_type2 %in% "GC.Tfh",
+         follicle %in% "sec") %>%
+  mutate(cell_type1 = factor(cell_type1, levels = c("GC.naiveB","FoB.CD20.CD21", "FoB.CD20.CD21.BCL6"))) %>%
+  select(ImageID, dataset, cell_type1, cell_type2, interaction_value)
+sdf_fig4c <- rbind(sdf_fig4c, sdf_fig4cb)
+
+
+
+#Figure S4
+s_fig4 <- df2_box %>% 
+  filter(cell_type1 %in% c("FoB.CD20.CD21", "FoB.CD20.CD21.BCL6"),
+         cell_type2 %in% "GC.Tfh.like",
+         follicle %in% "sec") %>%
+  mutate(cell_type1 = factor(cell_type1, levels = c("FoB.CD20.CD21", "FoB.CD20.CD21.BCL6")))
+
+s_fig4 %>%
+  ggplot(aes(x=dataset, y=interaction_value, fill = dataset)) +
+  ylab("Cellular interaction")  + xlab("Interactions in Tfh-like cell neighbourhoods")+
+  facet_wrap(~ cell_type1, scales = "free", nrow = 1) +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(aes(group = dataset), label = "p.format", vjust = 1) + 
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+
+sdf_s4 <- s_fig4 %>% select(ImageID, dataset, cell_type1, cell_type2, interaction_value)
+
+```
+
+### Figure 5 ###
+
+Figure 5C, Neighbourhood
+```{r}
+interactions3 <- fread("/location/REV1_spatialpheno_nb_spat_interaction_knn10_prediagnosticANDcontrols.csv")
+
+
+#combine phenotype and its neighbour
+interactions3$paired_interaction <- paste0(interactions3$phenotype, '_', interactions3$neighbour_phenotype)
+unique(interactions3$phenotype)
+
+#manipulate dataframe
+interactions3 <- interactions3 %>%
+  select(-V1, -starts_with("pvalue"), -phenotype, -neighbour_phenotype) %>%
+  filter(!grepl("Unknown", paired_interaction)) %>%
+  column_to_rownames("paired_interaction") %>% # set rowname
+  t() %>% #transpose
+  as.data.frame() %>% 
+  rownames_to_column("ImageID") %>% #imageid to its own column
+  mutate(ID = sub("\\_.*", "", ImageID)) #set sampleid
+  
+#choose needed clinical info
+#merge
+df_int3 <- merge(cl, interactions3, by = "ID")
+glimpse(df_int3)
+
+#change as numeric
+head(colnames(df_int3),20)
+ncol(df_int3)
+df_int3$dataset <- as.factor(df_int3$dataset)
+df_int3$dataset <- relevel(df_int3$dataset, ref = "MS")
+
+#identify interactions for which statistics cannot be calculated
+pois3 <- df_int3 %>% group_by(dataset) %>% summarise_at(vars(7:1301), mean, na.rm = TRUE) %>% t() %>% as.data.frame() %>%
+  filter(V1 == 0 | V1 == 1 | V2 == 0 | V2 == 1) %>% rownames()
+#and remove them
+df_int3 <- df_int3 %>% 
+  select(!all_of(pois3))
+
+#preparation for boxplots
+df_int3 %>% colnames() %>% head(10)
+df3_box <- df_int3 %>% 
+  pivot_longer(
+    cols = 7:ncol(.), 
+    names_to = "interacting_cells",
+    values_to = "interaction_value") %>%
+  separate(interacting_cells, into = c("cell_type1", "cell_type2"), sep = "_", remove = FALSE) %>%
+  mutate(dataset = fct_relevel(dataset, "CTRL"))
+
+df3_box <- merge(df3_box, clinfol, by = "ID")
+df2_box_ms <- df2_box %>% filter(dataset %in% "MS")
+df4_box <- rbind(df3_box, df2_box_ms)
+
+clin4 <- df_clin %>% select(ID, MS_status)
+df4_box <- merge(df4_box, clin4, by = "ID")
+comp_MSstatus <-  list(c("CTRL", "beforeMS"), c("beforeMS", "afterMS"), c("CTRL", "afterMS"))
+
+
+
+#Figure 5C
+df4_box %>% 
+  filter(cell_type1 %in% c("FoB.CD20.CD21", "FoB.CD20.CD21.BCL6"),
+         cell_type2 %in% "GC.Tfh",
+         follicle %in% "sec") %>%
+  mutate(cell_type1 = factor(cell_type1, levels = c("FoB.CD20.CD21", "FoB.CD20.CD21.BCL6")),
+         MS_status = factor(MS_status, levels = c("CTRL", "beforeMS", "afterMS"))) %>%
+  ggplot(aes(x=MS_status, y=interaction_value, fill = dataset)) +
+  ylab("Cellular interaction")  + xlab("")+
+  facet_wrap(~ cell_type1, scales = "free", nrow = 1) +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(comparisons = comp_MSstatus, label = "p.format", vjust = 1) +
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+sdf_fig5c <- df4_box %>% 
+  filter(cell_type1 %in% c("FoB.CD20.CD21", "FoB.CD20.CD21.BCL6"),
+         cell_type2 %in% "GC.Tfh",
+         follicle %in% "sec") %>%
+  mutate(cell_type1 = factor(cell_type1, levels = c("FoB.CD20.CD21", "FoB.CD20.CD21.BCL6")),
+         MS_status = factor(MS_status, levels = c("CTRL", "beforeMS", "afterMS"))) %>%
+  select(ImageID, MS_status, cell_type1, cell_type2, interaction_value)
+
+
+df4_box_stat <- df4_box %>% 
+  filter(interacting_cells %in% c("Mantle.naiveB_Mantle.Tfh", "Mantle.Tfr_Mantle.Tfh", "Mantle.Tfc_Mantle.Tfh",
+    "GC.naiveB_GC.Tfh","FoB.CD20.CD21_GC.Tfh", "FoB.CD20.CD21.BCL6_GC.Tfh", "GC.Tfr_GC.Tfh", "GC.Tfc_GC.Tfh", "FoB.CD20.CD21_GC.Tfh.like", "FoB.CD20.CD21.BCL6_GC.Tfh.like"),
+    follicle %in% "sec")
+stat_fig <- compare_means(interaction_value ~ MS_status, data = df4_box_stat,
+                group.by = c("interacting_cells"), p.adjust.method = "BH") %>% arrange(p.adj)
+
+
+#Figure S 5C
+s_fig5d <- df4_box %>% 
+  filter(cell_type1 %in% c("FoB.CD20.CD21", "FoB.CD20.CD21.BCL6"),
+         cell_type2 %in% "GC.Tfh.like",
+         follicle %in% "sec") %>%
+  mutate(cell_type1 = factor(cell_type1, levels = c("FoB.CD20.CD21", "FoB.CD20.CD21.BCL6")),
+                  MS_status = factor(MS_status, levels = c("CTRL", "beforeMS", "afterMS")))
+s_fig5d %>%
+  ggplot(aes(x=MS_status, y=interaction_value, fill = dataset)) +
+  ylab("Cellular interaction")  + xlab("")+
+  facet_wrap(~ cell_type1, scales = "free", nrow = 1) +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(comparisons = comp_MSstatus, label = "p.format", vjust = 1) +
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+sdf_s5d <- s_fig5d %>% select(ImageID, dataset, MS_status, cell_type1, cell_type2, interaction_value)
+```
+
+
+Figure 5A-B
+```{r}
+df_sum_long$MS_status <- factor(df_sum_long$MS_status, levels = c("CTRL", "beforeMS", "afterMS"))
+
+#Figure S 5A
+s_fig5a <- df_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc.PD1", "Tc.PD1.BCL6")) %>% 
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc"
+                    ))
+s_fig5a %>%
+ggplot(aes(x=MS_status, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 2, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("T cell subsets") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(comparisons = comp_MSstatus, label = "p.format", vjust = 1) +
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s5a <- s_fig5a %>% select(ImageID, dataset, MS_status, value, cells_mm2)
+
+
+#stats
+stat_fig <- compare_means(cells_mm2 ~ MS_status, 
+                          data = df_sum_long %>% filter(category %in% "fineBCL6"), 
+                          group.by = c("value"), 
+                          p.adjust.method = "BH") %>%
+                          arrange(p.adj)
+
+
+
+#figure S 5B
+s_fig5b <- df_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27")) %>% 
+  mutate(value = factor(value, levels = c("B.CD20", "FoB.CD20.CD21", "FoB.CD20.CD21.BCL6", "MB.CD20.CD27")),
+         value =recode(value,
+                    "B.CD20" ="naive B",
+                    "FoB.CD20.CD21" = "FoB",
+                    "FoB.CD20.CD21.BCL6" = "BCL6+ FoB",
+                    "MB.CD20.CD27" = "MB"))
+s_fig5b %>%
+ggplot(aes(x=MS_status, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("B cell subsets") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(comparisons = comp_MSstatus, label = "p.signif", vjust = 1) +
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s5b <- s_fig5b %>% select(ImageID, dataset, MS_status, value, cells_mm2)
+
+
+
+#figure S 5C
+s_fig5c <- df_sum_long %>% filter(category %in% "fineBCL6", 
+                       follicle %in% "sec",
+                       value %in% c("Th.PD1", "Th.PD1.BCL6", 
+                                    "Treg.BCL6", "Treg.PD1.BCL6", 
+                                    "Tc.PD1", "Tc.PD1.BCL6")) %>% 
+  mutate(value = factor(value, levels = c("Th", "Th.ICOS", "Th.PD1", "Th.PD1.BCL6", 
+             "Treg.BCL6", "Treg.PD1.BCL6", 
+             "Tc.PD1", "Tc.PD1.BCL6")),
+         value =recode(value,
+                    "Th.PD1"="Tfh-like",
+                    "Th.PD1.BCL6" ="Tfh",
+                    "Treg.BCL6" = "Tfr",
+                    "Treg.PD1.BCL6" = "PD1+ Tfr",
+                    "Tc.PD1" = "PD1+ Tc",
+                    "Tc.PD1.BCL6" = "Tfc"
+                    ))
+s_fig5c %>%
+ggplot(aes(x=MS_status, y=cells_mm2, fill=dataset)) +
+  facet_wrap(~ value, nrow = 2, scales = "free")  +
+  ylab("cells / 1 mm2") + xlab("T cell subsets") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(comparisons = comp_MSstatus, label = "p.signif", vjust = 1) +
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_s5c <- s_fig5c %>% select(ImageID, dataset, MS_status, value, cells_mm2)
+
+
+#stats
+stat_fig <- compare_means(cells_mm2 ~ MS_status, 
+                          data = df_sum_long %>% filter(category %in% "fineBCL6", follicle %in% "sec"), 
+                          group.by = c("value"), 
+                          p.adjust.method = "BH") %>%
+                          arrange(p.adj)
+
+
+```
+
+
+Figure 5A, Subsets in mantle and follicle
+```{r}
+#figure 5A mantle
+df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("Th.PD1", "Th.PD1.BCL6"),
+  ROI %in% "Bzone",
+  follicle %in% "sec") %>% 
+  mutate(value = factor(value, levels = c("Th.PD1", "Th.PD1.BCL6")),
+         value =recode(value,
+                       "Th.PD1"="Tfh-like",
+                       "Th.PD1.BCL6" ="Tfh"),
+         MS_status = factor(MS_status, levels = c("CTRL", "beforeMS", "afterMS"))) %>%
+  ggplot(aes(x=MS_status, y=fr_cells_area, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("% of all in region") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(comparisons = comp_MSstatus, label = "p.signif", vjust = 1) +
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_fig5aa <- df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("Th.PD1", "Th.PD1.BCL6"),
+  ROI %in% "Bzone",
+  follicle %in% "sec") %>% 
+  mutate(value = factor(value, levels = c("Th.PD1", "Th.PD1.BCL6")),
+         value =recode(value,
+                       "Th.PD1"="Tfh-like",
+                       "Th.PD1.BCL6" ="Tfh"),
+         ROI = recode(ROI, "Bzone" = "Mantle"),
+         MS_status = factor(MS_status, levels = c("CTRL", "beforeMS", "afterMS"))) %>%
+  select(ImageID, MS_status, ROI, value, fr_cells_area)
+
+#Figure 5A follicle
+df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("Th.PD1", "Th.PD1.BCL6"),
+  ROI %in% "Follicle",
+  follicle %in% "sec") %>% 
+  mutate(value = factor(value, levels = c("Th.PD1", "Th.PD1.BCL6")),
+         value =recode(value,
+                       "Th.PD1"="Tfh-like",
+                       "Th.PD1.BCL6" ="Tfh"),
+         MS_status = factor(MS_status, levels = c("CTRL", "beforeMS", "afterMS"))) %>%
+  ggplot(aes(x=MS_status, y=fr_cells_area, fill=dataset)) +
+  facet_wrap(~ value, nrow = 1, scales = "free")  +
+  ylab("% of all in region") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:2])+
+  stat_compare_means(comparisons = comp_MSstatus, label = "p.signif", vjust = 1) +
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(
+     fill="white"))
+
+
+sdf_fig5ab <- df3_sum_long %>% filter(category %in% "fineBCL6", 
+  value %in% c("Th.PD1", "Th.PD1.BCL6"),
+  ROI %in% "Follicle",
+  follicle %in% "sec") %>% 
+  mutate(value = factor(value, levels = c("Th.PD1", "Th.PD1.BCL6")),
+         value =recode(value,
+                       "Th.PD1"="Tfh-like",
+                       "Th.PD1.BCL6" ="Tfh"),
+         MS_status = factor(MS_status, levels = c("CTRL", "beforeMS", "afterMS"))) %>%
+  select(ImageID, MS_status, ROI, value, fr_cells_area)
+
+sdf_fig5a <- rbind(sdf_fig5aa, sdf_fig5ab)
+
+
+stat_fig <- compare_means(fr_cells_area ~ MS_status, 
+                          data = df3_sum_long %>% filter(category %in% "fineBCL6", !ROI %in% "Tzone", 
+                                                         !value %in% c("epithelium", "Unknown"),
+                                                         follicle %in% "sec", !MS_status %in% "afterMS"),
+                          group.by = c("ROI", "value"), 
+                          p.adjust.method = "BH") %>%
+                          arrange(p.adj)
+
+
+
+```
+
+
+
+
+Figure 5B, Tfh/Tfr ratio
+```{r}
+#figure 5B
+f3_rat %>%
+  filter(ROI %in% c("Bzone", "Follicle"), 
+        !ID %in% c("730", "644", "725", "907", "919", "923"),
+         follicle %in% "sec") %>% 
+  ggplot(aes(x=MS_status, y=ratio, fill=dataset)) +
+  ylab("Tfh / Tfr ratio") + xlab("") + 
+  geom_boxplot(outlier.color = NA) +
+  facet_wrap(~ ROI, nrow = 1, scales = "free")  +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3])+
+  stat_compare_means(comparisons = comp_MSstatus, label = "p.signif", vjust = 1) +
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+
+sdf_fig5b <- f3_rat %>%
+  filter(ROI %in% c("Bzone", "Follicle"), 
+        !ID %in% c("730", "644", "725", "907", "919", "923"),
+         follicle %in% "sec") %>% 
+  mutate(ROI = recode(ROI, "Bzone" = "Mantle")) %>%
+  rename(Tfh_Tfr_ratio = ratio) %>% 
+  select(ImageID, MS_status, ROI, Tfh_Tfr_ratio)
+
+
+stat_fig <- compare_means(ratio ~ MS_status, 
+                          data = f3_rat %>% filter(
+                                                          ROI %in% c("Bzone", "Follicle"),
+                                                          follicle %in% "sec"), #antaa 0.034
+                          group.by = c("ROI"), 
+                          p.adjust.method = "BH") %>% 
+                          arrange(p)
+
+
+```
+
+
+### Figure 6 ###
+
+EBER ISH results
+```{r}
+tma <- read.csv("/location/fig6a_eberish.csv", sep = ";") #from supporting_data_values
+ggplot(tma, aes(x=type, y=Num.Positive, fill=type)) +
+  geom_boxplot(outlier.color = NA) +
+  ylab("Positive cells / TMA core") + xlab("") + 
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(aes(group = type), label = "p.format", vjust = 1) + #, method = "t.test"
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+
+```
+
+HERQ-9 results
+```{r}
+df <- readxl::read_excel("/location/fig6b_qpcr.xlsx") #from supporting_data_values
+
+df$type <- as.factor(df$type)
+df <- df %>% 
+  rename("EBV" = EBV_per_millioncells, "HHV6B" = HHV6B_per_millioncells, "HHV7" = HHV7_per_millioncells) %>% 
+  mutate(type = recode(type, "hc" = "CTRL")) %>%
+  select(sample, type, EBV, HHV6B, HHV7) %>% 
+  as.tibble()
+
+compare_means(EBV ~ type, df)
+
+#figure 6B
+ggplot(df, aes(x=type, y=EBV, fill=type)) +
+  geom_boxplot(outlier.color = NA) +
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(aes(group = type), label = "p.format") + #, method = "t.test"
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+
+#figure S 6C
+#all pos viruses in one, need to put data in a long format first 
+df_long <- df %>% pivot_longer(cols = c(EBV, HHV6B, HHV7), names_to = "virus", values_to = "per_millioncells")
+
+df_long %>% filter(virus %in% c("HHV6B", "HHV7")) %>%
+ggplot(aes(x=type, y=per_millioncells, fill=type)) +
+  geom_boxplot(outlier.color = NA) +
+  facet_wrap(~ virus, nrow = 1, scales = "free") + 
+  ylab("copies / million cells") + xlab("") + 
+  geom_point(position=position_jitterdodge(jitter.width=0.1), pch=21) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(5, "Accent")[1:3]) +
+  stat_compare_means(aes(group = type), label = "p.format", vjust = 1) + #, method = "t.test"
+  theme_bw() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="white"))
+
+sdf_s6c <- df_long %>% 
+  filter(virus %in% c("HHV6B", "HHV7"))
+
+
+```
+
