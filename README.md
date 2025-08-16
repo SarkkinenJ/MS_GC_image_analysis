@@ -1,6 +1,7 @@
 # Image analysis of lymph nodes from patients with multiple sclerosis and healthy controls
 
-The following summarizes the analysis steps used in image analysis by Sarkkinen et al (DOI will be updated after acceptance of the manuscript).
+The following summarizes the analysis steps used in image analysis by Sarkkinen et al (DOI will be updated after publication of the manuscript).
+The images to recapitulate the results can be found in the UPDATE.
 
 ## Segmentation
 
@@ -59,9 +60,8 @@ Use the BCL6_status_merge.R script to read in the data and concatenate it into a
 
 ## Single-cell (spatial) analysis
 
-Merging and editing of the data frames for cell phenotyping, followed by cell abundance exploration, statistics, and part of neighborhood analysis, were performed using R studio. Cell type calling, including data normalization and spatial analysis, was performed using Scimap (scimap.xyz). For further information, see the "analysis" folder, which contains the UPDATE_FILE_NAME.Rmd and Jupyter notebook files. Cell counts were normalised to tissue area, which was calculated with QuPath (v. 0.4.3) using the "Create thresholder" tool from the first DAPI image of the image stacks. This resulted data frame area_images.csv, see "analysis" folder.
+Merging and editing of the data frames for cell phenotyping, followed by cell abundance exploration, statistics, and part of neighborhood analysis, were performed using R studio. Cell type calling, including data normalization and spatial analysis, was performed using Scimap (scimap.xyz). For further information, see the "analysis" folder, which contains the MS_TMA_analysis_in_R.Rmd and Jupyter notebook files. Cell counts were normalised to tissue area, which was calculated with QuPath (v. 0.4.3) using the "Create thresholder" tool from the first DAPI image of the image stacks. This resulted data frame area_images.csv, see "analysis" folder.
 
 ## EBER-ISH analysis
 
-The analysis of EBER-ISH-stained TMA slides was performed with QuPath (v. 0.4.3) using the "Positive cell detection" tool. For this, see the tutorial at https://qupath.readthedocs.io/en/stable/docs/tutorials/cell_detection.html#run-positive-cell-detection. For statistical analysis, see the "analysis" folder, which contains the UPDATE_FILE_NAME.Rmd.
-
+The analysis of EBER-ISH-stained TMA slides was performed with QuPath (v. 0.4.3) using the "Positive cell detection" tool. For this, see the tutorial at https://qupath.readthedocs.io/en/stable/docs/tutorials/cell_detection.html#run-positive-cell-detection. For statistical analysis, see the previous section.
