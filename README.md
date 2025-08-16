@@ -55,6 +55,7 @@ python quantification_workflow.py -o ../../TMA_reduced_quantified -ch ../../chan
 For additional help, see https://github.com/farkkilab/image_processing from Färkkilä Lab. Note, you can also perform the initial quantification by following their steps.
 
 To check for BCL6 status, again activate the scimap conda environment, navigate to the BCL6_script.ipynb, edit the paths, run, and inspect the results.
+Use the BCL6_status_merge.R script to read in the data and concatenate it into a single file for further use.
 
 ## Single-cell (spatial) analysis
 
